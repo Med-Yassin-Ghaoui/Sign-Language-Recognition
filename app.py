@@ -1,19 +1,18 @@
-import os
-# MediaPipe and TensorFlow each bundle their own native protobuf runtime.
-# On Linux they clash at import time and segfault, so force the pure-Python
-# protobuf implementation to remove the duplicate native load. Must be set
-# before mediapipe / tensorflow are imported.
-os.environ["PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION"] = "python"
-
 import av
 import cv2
-import time
 import numpy as np
 import streamlit as st
 import mediapipe as mp
 from collections import deque
 from streamlit_webrtc import webrtc_streamer, VideoProcessorBase, RTCConfiguration
-from tensorflow.keras.models import load_model
+
+# Standalone TFLite (LiteRT) interpreter — runs the LSTM without importing
+# TensorFlow, which would segfault next to MediaPipe on Linux. Falls back to
+# tf.lite only if the standalone package isn't present (e.g. some dev setups).
+try:
+    from ai_edge_litert.interpreter import Interpreter
+except ImportError:                                  # pragma: no cover
+    from tensorflow.lite import Interpreter
 
 # ── Config (keep in sync with collect_data.py / train.py) ─────────────────────
 SIGNS                = ['hello', 'thanks', 'yes', 'no', 'please']
@@ -21,7 +20,7 @@ SEQUENCE_LENGTH      = 30
 CONFIDENCE_THRESHOLD = 0.85
 PREDICT_EVERY        = 5     # run the LSTM only every N frames (huge fps win)
 MODEL_PATH           = 'models/hand_landmarker.task'
-MODEL_FILE           = 'sign_model.keras'
+MODEL_FILE           = 'sign_model.tflite'
 # ─────────────────────────────────────────────────────────────────────────────
 
 BaseOptions           = mp.tasks.BaseOptions
@@ -34,8 +33,10 @@ RTC_CONFIG = RTCConfiguration({"iceServers": [{"urls": ["stun:stun.l.google.com:
 
 
 @st.cache_resource
-def get_model():
-    return load_model(MODEL_FILE)
+def get_interpreter():
+    interp = Interpreter(model_path=MODEL_FILE)
+    interp.allocate_tensors()
+    return interp
 
 
 def extract_keypoints(result):
@@ -67,7 +68,9 @@ def draw_bounding_boxes(frame, result):
 
 class SignProcessor(VideoProcessorBase):
     def __init__(self):
-        self.model     = get_model()
+        self.interp    = get_interpreter()
+        self.in_idx    = self.interp.get_input_details()[0]['index']
+        self.out_idx   = self.interp.get_output_details()[0]['index']
         self.sequence  = deque(maxlen=SEQUENCE_LENGTH)
         self.label     = ''
         self.frame_idx = 0
@@ -93,7 +96,10 @@ class SignProcessor(VideoProcessorBase):
         # Keypoints are extracted every frame to keep the buffer continuous,
         # but the LSTM only runs every PREDICT_EVERY frames to avoid stalling.
         if len(self.sequence) == SEQUENCE_LENGTH and self.frame_idx % PREDICT_EVERY == 0:
-            probs = self.model(np.expand_dims(np.array(self.sequence), axis=0), training=False).numpy()[0]
+            x = np.expand_dims(np.array(self.sequence, dtype=np.float32), axis=0)
+            self.interp.set_tensor(self.in_idx, x)
+            self.interp.invoke()
+            probs = self.interp.get_tensor(self.out_idx)[0]
             if probs.max() > CONFIDENCE_THRESHOLD:
                 self.label = f'{SIGNS[np.argmax(probs)]} ({probs.max():.0%})'
 
@@ -122,4 +128,4 @@ webrtc_streamer(
     async_processing=True,
 )
 
-st.caption("Built with Streamlit, MediaPipe Tasks, and TensorFlow. Source on GitHub.")
+st.caption("Built with Streamlit, MediaPipe Tasks, and a TFLite LSTM. Source on GitHub.")

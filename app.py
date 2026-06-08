@@ -1,3 +1,10 @@
+import os
+# MediaPipe and TensorFlow each bundle their own native protobuf runtime.
+# On Linux they clash at import time and segfault, so force the pure-Python
+# protobuf implementation to remove the duplicate native load. Must be set
+# before mediapipe / tensorflow are imported.
+os.environ["PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION"] = "python"
+
 import av
 import cv2
 import time

@@ -4,7 +4,11 @@ Real-time recognition of dynamic sign-language gestures from a webcam, using
 **MediaPipe** hand-landmark tracking and an **LSTM** sequence model trained in
 TensorFlow. Deployed as a live, in-browser web app with Streamlit.
 
-> **Live demo:** _add your Streamlit Cloud URL here once deployed_
+> **[Live demo on Streamlit Cloud](https://share.streamlit.io/)**
+>
+> ⚠️ **Note:** The free tier app goes to sleep after 1 hour of inactivity.
+> If you see a "degraded performance" message or blank page, contact the admin
+> (yassine.ghaoui12@gmail.com) to reactivate it.
 
 ![demo](demo.gif) <!-- record a short clip of the app working and save it as demo.gif -->
 
